@@ -1,0 +1,45 @@
+{
+  "title": "Jobat.be Jobs Scraper",
+  "description": "Collect job listings from Jobat.be search pages with enriched job details and clean output.",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "startUrl": {
+      "title": "Start URL",
+      "type": "string",
+      "description": "Jobat search URL to start from.",
+      "editor": "textfield",
+      "prefill": "https://www.jobat.be/nl/jobs/administratie",
+      "default": "https://www.jobat.be/nl/jobs/administratie"
+    },
+    "results_wanted": {
+      "title": "Results wanted",
+      "type": "integer",
+      "description": "Maximum number of jobs to save.",
+      "editor": "number",
+      "minimum": 1,
+      "default": 20,
+      "prefill": 20
+    },
+    "max_pages": {
+      "title": "Maximum pages",
+      "type": "integer",
+      "description": "Maximum number of listing pages to visit per start URL.",
+      "editor": "number",
+      "minimum": 1,
+      "default": 5,
+      "prefill": 3
+    },
+    "proxyConfiguration": {
+      "title": "Proxy configuration",
+      "type": "object",
+      "description": "Use Apify proxy if needed for reliability.",
+      "editor": "proxy",
+      "default": {
+        "useApifyProxy": false
+      }
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

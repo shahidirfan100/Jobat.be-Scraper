@@ -1,0 +1,85 @@
+{
+  "actorSpecification": 1,
+  "fields": {
+    "job_id": "Job ID",
+    "title": "Title",
+    "company": "Company",
+    "job_url": "Job URL",
+    "listing_url": "Listing URL",
+    "category": "Category",
+    "sub_category_1": "Sub Category 1",
+    "sub_category_2": "Sub Category 2",
+    "region": "Region",
+    "region_zip": "Region ZIP",
+    "regime": "Regime",
+    "contract_type": "Contract Type",
+    "salary_type": "Salary Type",
+    "fetched_at": "Fetched At",
+    "description_html": "Description HTML",
+    "description_text": "Description Text"
+  },
+  "views": {
+    "overview": {
+      "title": "Overview",
+      "transformation": {
+        "fields": [
+          "job_id",
+          "title",
+          "company",
+          "region",
+          "regime",
+          "contract_type",
+          "salary_type",
+          "description_text",
+          "job_url",
+          "fetched_at"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "job_id": {
+            "label": "Job ID",
+            "format": "text"
+          },
+          "title": {
+            "label": "Title",
+            "format": "text"
+          },
+          "company": {
+            "label": "Company",
+            "format": "text"
+          },
+          "region": {
+            "label": "Region",
+            "format": "text"
+          },
+          "regime": {
+            "label": "Regime",
+            "format": "text"
+          },
+          "contract_type": {
+            "label": "Contract",
+            "format": "text"
+          },
+          "salary_type": {
+            "label": "Salary",
+            "format": "text"
+          },
+          "job_url": {
+            "label": "Job URL",
+            "format": "link"
+          },
+          "fetched_at": {
+            "label": "Fetched At",
+            "format": "date"
+          },
+          "description_text": {
+            "label": "Description",
+            "format": "text"
+          }
+        }
+      }
+    }
+  }
+}
