@@ -12,6 +12,13 @@
       "prefill": "https://www.jobat.be/nl/jobs/administratie",
       "default": "https://www.jobat.be/nl/jobs/administratie"
     },
+    "keyword": {
+      "title": "Keyword",
+      "type": "string",
+      "description": "Keyword to search for (e.g., software developer).",
+      "editor": "textfield",
+      "prefill": "software developer"
+    },
     "results_wanted": {
       "title": "Results wanted",
       "type": "integer",
@@ -36,7 +43,7 @@
       "description": "Use Apify proxy if needed for reliability.",
       "editor": "proxy",
       "default": {
-        "useApifyProxy": false
+        "useApifyProxy": true
       }
     }
   },

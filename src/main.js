@@ -6,7 +6,6 @@ const DEFAULT_START_URL = `${BASE_URL}/nl/jobs/administratie`;
 const DETAIL_CONCURRENCY = 5;
 
 const DEFAULT_HEADERS = {
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:147.0) Gecko/20100101 Firefox/147.0',
     'accept-language': 'nl-BE,nl;q=0.9,en-US;q=0.8,en;q=0.7',
 };
 
@@ -382,13 +381,32 @@ async function fetchText(url, proxyConfiguration, additionalHeaders = {}) {
 function normalizeStartUrls(input) {
     const rawStartUrls = [];
 
+    if (Array.isArray(input.startUrls)) {
+        rawStartUrls.push(...input.startUrls);
+    }
     if (input.startUrl) rawStartUrls.push(input.startUrl);
     if (input.url) rawStartUrls.push(input.url);
+    if (Array.isArray(input.urls)) {
+        rawStartUrls.push(...input.urls);
+    }
 
     const normalized = rawStartUrls
         .map((entry) => (typeof entry === 'string' ? entry : entry?.url))
         .map((entry) => toAbsoluteUrl(entry || '', BASE_URL))
         .filter(Boolean);
+
+    const keyword = input.keyword || input.keywords || input.q || '';
+    if (keyword && typeof keyword === 'string' && keyword.trim()) {
+        const hasOnlyDefault = normalized.length === 0 || 
+            (normalized.length === 1 && normalized[0] === DEFAULT_START_URL);
+        
+        if (hasOnlyDefault) {
+            const slug = toSlug(keyword);
+            if (slug) {
+                return [toAbsoluteUrl(`/nl/jobs/results/${slug}`, BASE_URL)];
+            }
+        }
+    }
 
     if (normalized.length > 0) return [...new Set(normalized)];
 
@@ -399,22 +417,26 @@ async function main() {
     const input = (await Actor.getInput()) || {};
     const {
         results_wanted: resultsWantedRaw = 20,
+        resultsWanted: resultsWantedCamel = 20,
         max_pages: maxPagesRaw = 20,
+        maxPages: maxPagesCamel = 20,
         proxyConfiguration: proxyConfigurationInput,
     } = input;
 
-    const resultsWanted = Number.isFinite(Number(resultsWantedRaw))
-        ? Math.max(1, Number(resultsWantedRaw))
+    const resolvedResultsWanted = input.results_wanted !== undefined ? resultsWantedRaw : resultsWantedCamel;
+    const resultsWanted = Number.isFinite(Number(resolvedResultsWanted))
+        ? Math.max(1, Number(resolvedResultsWanted))
         : 20;
 
-    const maxPages = Number.isFinite(Number(maxPagesRaw))
-        ? Math.max(1, Number(maxPagesRaw))
+    const resolvedMaxPages = input.max_pages !== undefined ? maxPagesRaw : maxPagesCamel;
+    const maxPages = Number.isFinite(Number(resolvedMaxPages))
+        ? Math.max(1, Number(resolvedMaxPages))
         : 20;
 
     const detailConcurrency = DETAIL_CONCURRENCY;
 
-    const proxyConfiguration = proxyConfigurationInput
-        ? await Actor.createProxyConfiguration({ ...proxyConfigurationInput })
+    const proxyConfiguration = (proxyConfigurationInput && (proxyConfigurationInput.useApifyProxy || proxyConfigurationInput.proxyUrls?.length > 0))
+        ? await Actor.createProxyConfiguration(proxyConfigurationInput)
         : undefined;
 
     const startUrls = normalizeStartUrls(input);

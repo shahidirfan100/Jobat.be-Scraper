@@ -4,7 +4,7 @@
   "description": "Production-ready Jobat.be jobs scraper with API-based job detail enrichment.",
   "type": "module",
   "dependencies": {
-    "apify": "^3.7.0",
+    "apify": "^3.7.2",
     "crawlee": "^3.16.0",
     "cheerio": "^1.2.0",
     "got-scraping": "^4.2.1"
@@ -13,8 +13,8 @@
     "start": "node src/main.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint",
-    "lint:fix": "eslint --fix",
+    "lint": "npx eslint .",
+    "lint:fix": "npx eslint . --fix",
     "test": "echo \"Error: oops, the Actor has no tests yet, sad!\" && exit 1"
   },
   "author": "Shahid Irfan",
