@@ -1,13 +1,9 @@
 import { Actor, log } from 'apify';
-import { gotScraping } from 'got-scraping';
+import { Impit } from 'impit';
 
 const BASE_URL = 'https://www.jobat.be';
 const DEFAULT_START_URL = `${BASE_URL}/nl/jobs/administratie`;
 const DETAIL_CONCURRENCY = 5;
-
-const DEFAULT_HEADERS = {
-    'accept-language': 'nl-BE,nl;q=0.9,en-US;q=0.8,en;q=0.7',
-};
 
 await Actor.init();
 
@@ -358,24 +354,37 @@ function removeEmptyValues(value) {
     return value;
 }
 
-async function fetchText(url, proxyConfiguration, additionalHeaders = {}) {
-    const proxyUrl = proxyConfiguration ? await proxyConfiguration.newUrl() : undefined;
-    const response = await gotScraping({
-        url,
-        proxyUrl,
-        headers: {
-            ...DEFAULT_HEADERS,
-            ...additionalHeaders,
-        },
-        timeout: {
-            request: 30_000,
-        },
-        retry: {
-            limit: 3,
-        },
-    });
+async function fetchText(url, client, additionalHeaders = {}, retries = 3) {
+    let lastError;
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            const response = await Promise.race([
+                client.fetch(url, {
+                    headers: Object.keys(additionalHeaders).length ? additionalHeaders : undefined,
+                }),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 30_000)),
+            ]);
 
-    return response.body;
+            if (response.ok) return await response.text();
+
+            if (response.status === 429) {
+                const wait = attempt * 2000 + Math.random() * 1000;
+                log.warning(`Rate limited (429), retrying in ${Math.round(wait / 1000)}s (attempt ${attempt}/${retries})`);
+                await new Promise((r) => setTimeout(r, wait));
+                continue;
+            }
+
+            throw new Error(`HTTP ${response.status}`);
+        } catch (error) {
+            lastError = error;
+            if (attempt < retries) {
+                const wait = attempt * 1000 + Math.random() * 500;
+                log.warning(`Request failed (${error.message}), retrying in ${Math.round(wait / 1000)}s (attempt ${attempt}/${retries})`);
+                await new Promise((r) => setTimeout(r, wait));
+            }
+        }
+    }
+    throw lastError;
 }
 
 function normalizeStartUrls(input) {
@@ -435,20 +444,34 @@ async function main() {
 
     const detailConcurrency = DETAIL_CONCURRENCY;
 
-    const proxyConfiguration = (proxyConfigurationInput && (proxyConfigurationInput.useApifyProxy || proxyConfigurationInput.proxyUrls?.length > 0))
+    const hasCustomProxyUrls = proxyConfigurationInput?.proxyUrls?.length > 0;
+
+    if (proxyConfigurationInput?.useApifyProxy) {
+        log.info('Apify proxy skipped — Jobat.be blocks datacenter proxy IPs. Using direct connection.');
+    }
+
+    const proxyConfiguration = hasCustomProxyUrls
         ? await Actor.createProxyConfiguration(proxyConfigurationInput)
         : undefined;
+
+    const proxyUrl = proxyConfiguration ? await proxyConfiguration.newUrl() : undefined;
+    const client = new Impit({
+        browser: 'chrome',
+        ignoreTlsErrors: true,
+        ...(proxyUrl && { proxyUrl }),
+    });
 
     const startUrls = normalizeStartUrls(input);
     log.info(`Starting Jobat API-based scrape with ${startUrls.length} start URL(s).`);
 
     const seenListUrls = new Set();
     const seenJobIds = new Set();
-    const collectedJobs = [];
+    let saved = 0;
+    let pagesProcessed = 0;
 
     const queue = startUrls.map((url) => ({ url, pageNo: 1 }));
 
-    while (queue.length > 0 && collectedJobs.length < resultsWanted) {
+    while (queue.length > 0 && saved < resultsWanted) {
         const { url, pageNo } = queue.shift();
         if (!url || seenListUrls.has(url) || pageNo > maxPages) continue;
         seenListUrls.add(url);
@@ -457,13 +480,14 @@ async function main() {
 
         let html;
         try {
-            html = await fetchText(url, proxyConfiguration);
+            html = await fetchText(url, client, { referer: BASE_URL });
         } catch (error) {
             log.warning(`List page request failed (${url}): ${error.message}`);
             continue;
         }
 
         const parsed = parseListPage(html, url);
+        pagesProcessed++;
         log.info(
             `Parsed ${parsed.jobs.length} listing entries from page ${pageNo}${parsed.total ? ` (total ${parsed.total})` : ''}.`,
         );
@@ -479,74 +503,79 @@ async function main() {
             }
         }
 
+        const pageJobs = [];
         for (const job of parsed.jobs) {
             if (!job.jobId || seenJobIds.has(job.jobId)) continue;
             seenJobIds.add(job.jobId);
-            collectedJobs.push(job);
-            if (collectedJobs.length >= resultsWanted) break;
+            pageJobs.push(job);
+            if (saved + pageJobs.length >= resultsWanted) break;
         }
 
-        if (parsed.nextUrl && pageNo < maxPages && collectedJobs.length < resultsWanted) {
+        if (pageJobs.length === 0) {
+            if (parsed.nextUrl && pageNo < maxPages && saved < resultsWanted) {
+                queue.push({ url: parsed.nextUrl, pageNo: pageNo + 1 });
+            }
+            continue;
+        }
+
+        for (let i = 0; i < pageJobs.length; i += detailConcurrency) {
+            const batch = pageJobs.slice(i, i + detailConcurrency);
+            const batchItems = await Promise.all(
+                batch.map(async (job) => {
+                    const detailUrl = new URL('/api/jobat/jobdetail/getjobcontent', BASE_URL);
+                    detailUrl.searchParams.set('jobId', String(job.jobId));
+                    detailUrl.searchParams.set('filter', job.filter || '');
+                    detailUrl.searchParams.set('logListClick', 'false');
+                    detailUrl.searchParams.set('setMetaData', 'false');
+                    detailUrl.searchParams.set('isResultsPage', 'true');
+
+                    try {
+                        const detailHtml = await fetchText(detailUrl.href, client, {
+                            accept: 'text/html, */*; q=0.8',
+                            'x-requested-with': 'XMLHttpRequest',
+                            referer: job.sourceUrl,
+                        });
+
+                        const parsed = parseJobDetail(detailHtml, job);
+                        return removeEmptyValues({
+                            ...parsed,
+                            detail_api_url: detailUrl.href,
+                            fetched_at: new Date().toISOString(),
+                        });
+                    } catch (error) {
+                        log.warning(`Detail request failed for jobId=${job.jobId}: ${error.message}`);
+                        return removeEmptyValues({
+                            job_id: job.jobId,
+                            title: job.title,
+                            listing_url: job.listingUrl,
+                            source_search_url: job.sourceUrl,
+                            source_search_filter: job.filter,
+                            source_index: job.index,
+                            detail_api_url: detailUrl.href,
+                            detail_error: error.message,
+                            fetched_at: new Date().toISOString(),
+                        });
+                    }
+                }),
+            );
+
+            for (const item of batchItems) {
+                if (!item) continue;
+                await Actor.pushData(item);
+                saved++;
+            }
+
+            if (saved % 50 === 0 || saved === resultsWanted) {
+                log.info(`Saved ${saved}/${resultsWanted} items.`);
+            }
+        }
+
+        if (parsed.nextUrl && pageNo < maxPages && saved < resultsWanted) {
             queue.push({ url: parsed.nextUrl, pageNo: pageNo + 1 });
         }
     }
 
-    const targetJobs = collectedJobs.slice(0, resultsWanted);
-    log.info(`Collected ${targetJobs.length} unique job IDs for detail enrichment.`);
-
-    let saved = 0;
-
-    for (let i = 0; i < targetJobs.length; i += detailConcurrency) {
-        const batch = targetJobs.slice(i, i + detailConcurrency);
-        const batchItems = await Promise.all(
-            batch.map(async (job) => {
-                const detailUrl = new URL('/api/jobat/jobdetail/getjobcontent', BASE_URL);
-                detailUrl.searchParams.set('jobId', String(job.jobId));
-                detailUrl.searchParams.set('filter', job.filter || '');
-                detailUrl.searchParams.set('logListClick', 'false');
-                detailUrl.searchParams.set('setMetaData', 'false');
-                detailUrl.searchParams.set('isResultsPage', 'true');
-
-                try {
-                    const detailHtml = await fetchText(detailUrl.href, proxyConfiguration, {
-                        accept: 'text/html, */*; q=0.8',
-                        'x-requested-with': 'XMLHttpRequest',
-                        referer: job.sourceUrl,
-                    });
-
-                    const parsed = parseJobDetail(detailHtml, job);
-                    return removeEmptyValues({
-                        ...parsed,
-                        detail_api_url: detailUrl.href,
-                        fetched_at: new Date().toISOString(),
-                    });
-                } catch (error) {
-                    log.warning(`Detail request failed for jobId=${job.jobId}: ${error.message}`);
-                    return removeEmptyValues({
-                        job_id: job.jobId,
-                        title: job.title,
-                        listing_url: job.listingUrl,
-                        source_search_url: job.sourceUrl,
-                        source_search_filter: job.filter,
-                        source_index: job.index,
-                        detail_api_url: detailUrl.href,
-                        detail_error: error.message,
-                        fetched_at: new Date().toISOString(),
-                    });
-                }
-            }),
-        );
-
-        for (const item of batchItems) {
-            if (!item) continue;
-            await Actor.pushData(item);
-            saved++;
-        }
-
-        log.info(`Saved ${saved}/${targetJobs.length} items.`);
-    }
-
-    log.info(`Finished. Total saved: ${saved}.`);
+    log.info(`Finished | saved=${saved} | pages=${pagesProcessed}.`);
 }
 
 try {

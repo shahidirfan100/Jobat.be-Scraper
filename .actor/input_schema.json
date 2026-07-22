@@ -36,15 +36,6 @@
       "minimum": 1,
       "default": 5,
       "prefill": 3
-    },
-    "proxyConfiguration": {
-      "title": "Proxy configuration",
-      "type": "object",
-      "description": "Use Apify proxy if needed for reliability.",
-      "editor": "proxy",
-      "default": {
-        "useApifyProxy": true
-      }
     }
   },
   "required": [],

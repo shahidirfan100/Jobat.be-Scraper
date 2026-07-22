@@ -7,6 +7,7 @@ Extract fresh job listings from Jobat.be with clean, structured output ready for
 - **Simple start setup** - Start from a Jobat search URL.
 - **Automatic pagination** - Traverses result pages until your limits are reached.
 - **Structured job enrichment** - Captures company, category, region, contract, and language-related fields.
+- **Page-by-page processing** - Fetches listing page, enriches detail, and saves results immediately before moving to the next page.
 - **Clean dataset output** - Removes empty values so records are compact and production-friendly.
 - **Duplicate-safe collection** - Prevents repeated job IDs during pagination.
 
@@ -150,7 +151,7 @@ Each dataset item may include the following non-empty fields:
 - Increase `max_pages` only when you need larger datasets.
 
 ### Manage Throughput
-- Use proxy settings when running high-volume jobs repeatedly.
+- Custom proxy URLs are supported for high-volume runs via the `proxyConfiguration` input.
 
 ---
 
