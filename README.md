@@ -66,6 +66,7 @@ All parameters are optional. If no search input is supplied, the Actor uses the 
 | `keyword` | String | No | Prefilled: `software developer` | Job title, skill, or search phrase. For example, `software developer`, `verpleegkundige`, or `administratie`. |
 | `results_wanted` | Integer | No | `20` | Maximum number of job records to save. The value must be at least `1`. |
 | `max_pages` | Integer | No | `5` | Maximum number of Jobat result pages to process. The value must be at least `1`. |
+| `proxyConfiguration` | Object | No | `useApifyProxy: true` | Proxy used when Jobat.be blocks the connection (HTTP 403). Enable Apify Proxy, or pass custom `proxyUrls`. The Actor falls back to a direct connection if the proxy is unavailable. |
 
 The Actor stops when it reaches `results_wanted`, when there are no more result pages, or when it reaches `max_pages`.
 
@@ -113,6 +114,35 @@ Collect a larger administration dataset for a recurring hiring report by increas
 }
 ```
 
+### Run through a proxy
+
+Route the requests through a proxy when Jobat.be answers with HTTP 403 for your connection.
+
+```json
+{
+  "keyword": "software developer",
+  "results_wanted": 50,
+  "max_pages": 5,
+  "proxyConfiguration": {
+    "useApifyProxy": true,
+    "apifyProxyGroups": ["RESIDENTIAL"]
+  }
+}
+```
+
+Custom proxy URLs work the same way:
+
+```json
+{
+  "startUrl": "https://www.jobat.be/nl/jobs/administratie",
+  "results_wanted": 20,
+  "max_pages": 3,
+  "proxyConfiguration": {
+    "proxyUrls": ["http://user:pass@host:port"]
+  }
+}
+```
+
 ## Sample Output
 
 The following example shows one dataset item. Optional fields are omitted when Jobat.be does not publish them for a particular job.
@@ -156,6 +186,7 @@ The following example shows one dataset item. Optional fields are omitted when J
 - **Expect source-dependent fields** - Salary signals, language requirements, education, and descriptions may be absent from individual listings.
 - **Review direct links** - Use `job_url` to open the original listing and confirm details before taking recruitment or business action.
 - **Report source changes** - If a previously working search no longer returns expected data, report the example URL and run details through the Actor's Issues tab.
+- **Keep a proxy ready** - If a run reports HTTP 403, enable `proxyConfiguration` and start the run again instead of lowering the result limit.
 
 ## Integrations and Export Formats
 
@@ -197,6 +228,10 @@ Some Jobat.be listings do not publish salary information, education requirements
 ### What happens if a job's additional details are unavailable?
 
 The Actor can save the listing data that was available and include `detail_error` when additional details could not be collected. This prevents one incomplete listing from removing the entire run result.
+
+### Why does my run fail with HTTP 403?
+
+Jobat.be protects its pages with a bot check, so some connections are refused. The run then stops without results and reports the block instead of returning an empty dataset. Enable `proxyConfiguration` with Apify Proxy or custom `proxyUrls` and start the run again. The Actor retries, switches between the proxy and a direct connection, and falls back to a direct connection if the proxy is unavailable.
 
 ### Can I export Jobat.be data to CSV or Excel?
 

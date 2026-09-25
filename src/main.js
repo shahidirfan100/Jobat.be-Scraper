@@ -166,6 +166,36 @@ function getLocaleJobsBase(urlObj) {
     return '/nl/jobs';
 }
 
+function getResultsPath(basePath) {
+    if (basePath === '/fr/emplois') return '/fr/emplois/titres';
+    if (basePath === '/en/jobs') return '/en/jobs/results';
+    return '/nl/jobs/results';
+}
+
+function getSecondaryResultsPaths(basePath) {
+    if (basePath === '/fr/emplois') return [`${basePath}/titres`];
+    if (basePath === '/en/jobs') return [`${basePath}/titles`];
+    return [`${basePath}/functietitels`];
+}
+
+function resolveSlug(urlObj) {
+    const keyword =
+        urlObj.searchParams.get('keyword')
+        || urlObj.searchParams.get('keywords')
+        || urlObj.searchParams.get('q')
+        || urlObj.searchParams.get('what')
+        || '';
+
+    const fromQuery = toSlug(keyword);
+    if (fromQuery) return fromQuery;
+
+    const segments = urlObj.pathname.split('/').filter(Boolean);
+    const lastSegment = segments[segments.length - 1] || '';
+    if (!lastSegment || /^\d+$/.test(lastSegment)) return '';
+    if (['jobs', 'emplois', 'results', 'resultats', 'titres', 'titles', 'functietitels', 'search'].includes(lastSegment.toLowerCase())) return '';
+    return toSlug(lastSegment);
+}
+
 function resolveFallbackStartUrls(currentUrl, html) {
     const candidates = [];
 
@@ -177,20 +207,15 @@ function resolveFallbackStartUrls(currentUrl, html) {
     }
 
     const basePath = getLocaleJobsBase(urlObj);
-    const keyword =
-        urlObj.searchParams.get('keyword')
-        || urlObj.searchParams.get('keywords')
-        || urlObj.searchParams.get('q')
-        || urlObj.searchParams.get('what')
-        || '';
-    const slug = toSlug(keyword);
+    const slug = resolveSlug(urlObj);
 
     if (slug) {
+        candidates.push(toAbsoluteUrl(`${getResultsPath(basePath)}/${slug}`, urlObj.origin));
         candidates.push(toAbsoluteUrl(`${basePath}/${slug}`, urlObj.origin));
 
-        if (basePath === '/nl/jobs') candidates.push(toAbsoluteUrl(`${basePath}/functietitels/${slug}`, urlObj.origin));
-        if (basePath === '/en/jobs') candidates.push(toAbsoluteUrl(`${basePath}/titles/${slug}`, urlObj.origin));
-        if (basePath === '/fr/emplois') candidates.push(toAbsoluteUrl(`${basePath}/titres/${slug}`, urlObj.origin));
+        for (const secondary of getSecondaryResultsPaths(basePath)) {
+            candidates.push(toAbsoluteUrl(`${secondary}/${slug}`, urlObj.origin));
+        }
     }
 
     const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
@@ -354,18 +379,66 @@ function removeEmptyValues(value) {
     return value;
 }
 
-async function fetchText(url, client, additionalHeaders = {}, retries = 3) {
+function browserHeaders(referer = BASE_URL) {
+    return {
+        accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'accept-language': 'nl-BE,nl;q=0.9,en;q=0.8,en-US;q=0.7',
+        referer,
+        'sec-fetch-dest': 'document',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-site': 'same-origin',
+        'sec-fetch-user': '?1',
+        'upgrade-insecure-requests': '1',
+        'cache-control': 'max-age=0',
+    };
+}
+
+function detailHeaders(referer) {
+    return {
+        ...browserHeaders(referer),
+        accept: 'text/html, */*; q=0.8',
+        'x-requested-with': 'XMLHttpRequest',
+    };
+}
+
+function createClient(browser = 'chrome', proxyUrl) {
+    return new Impit({
+        browser,
+        ignoreTlsErrors: true,
+        ...(proxyUrl && { proxyUrl }),
+    });
+}
+
+function isChallengePage(status, body) {
+    if (status === 403) return true;
+    return typeof body === 'string' && /<title>\s*Just a moment\.\.\.<\/title>/i.test(body);
+}
+
+function shortMessage(error) {
+    const message = String(error?.message ?? error)
+        .split('\n')[0]
+        .replace(/https?:\/\/[^\s)'"]+/gi, '<url>')
+        .trim();
+    return message.length > 140 ? `${message.slice(0, 140)}…` : message;
+}
+
+async function fetchText(url, routes, additionalHeaders = {}, retries = 3) {
     let lastError;
+
     for (let attempt = 1; attempt <= retries; attempt++) {
+        if (routes.length === 0) break;
+        const route = routes[0];
         try {
             const response = await Promise.race([
-                client.fetch(url, {
+                route.client.fetch(url, {
                     headers: Object.keys(additionalHeaders).length ? additionalHeaders : undefined,
                 }),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 30_000)),
             ]);
 
-            if (response.ok) return await response.text();
+            const body = response.ok ? await response.text() : null;
+
+            if (response.ok && !isChallengePage(response.status, body)) return body;
 
             if (response.status === 429) {
                 const wait = attempt * 2000 + Math.random() * 1000;
@@ -374,17 +447,37 @@ async function fetchText(url, client, additionalHeaders = {}, retries = 3) {
                 continue;
             }
 
-            throw new Error(`HTTP ${response.status}`);
+            const error = new Error(`HTTP ${response.status}`);
+            error.status = response.status;
+            throw error;
         } catch (error) {
             lastError = error;
+
+            const isTimeout = error.message === 'Timeout';
+            const isBlocked = error.status === 403;
+            const isBrokenTransport = error.status === undefined && !isTimeout;
+
+            if (routes.length > 1 && (isBlocked || isTimeout || isBrokenTransport)) {
+                if (isBrokenTransport) {
+                    const failed = routes.shift();
+                    log.warning(`Dropping ${failed.label} after transport error (${shortMessage(error)}). Using ${routes[0].label}.`);
+                } else {
+                    routes.push(routes.shift());
+                    const reason = isBlocked ? 'Blocked (HTTP 403)' : 'Request timed out';
+                    log.warning(`${reason} via ${route.label}. Switching to ${routes[0].label}.`);
+                }
+            }
+
             if (attempt < retries) {
                 const wait = attempt * 1000 + Math.random() * 500;
-                log.warning(`Request failed (${error.message}), retrying in ${Math.round(wait / 1000)}s (attempt ${attempt}/${retries})`);
+                log.warning(`Request failed (${shortMessage(error)}), retrying in ${Math.round(wait / 1000)}s (attempt ${attempt}/${retries})`);
                 await new Promise((r) => setTimeout(r, wait));
             }
         }
     }
-    throw lastError;
+    const failure = new Error(lastError ? shortMessage(lastError) : 'Request failed');
+    if (lastError?.status !== undefined) failure.status = lastError.status;
+    throw failure;
 }
 
 function normalizeStartUrls(input) {
@@ -412,7 +505,9 @@ function normalizeStartUrls(input) {
         if (hasOnlyDefault) {
             const slug = toSlug(keyword);
             if (slug) {
-                return [toAbsoluteUrl(`/nl/jobs/results/${slug}`, BASE_URL)];
+                const referenceUrl = new URL(normalized[0] || DEFAULT_START_URL);
+                const basePath = getLocaleJobsBase(referenceUrl);
+                return [toAbsoluteUrl(`${getResultsPath(basePath)}/${slug}`, referenceUrl.origin)];
             }
         }
     }
@@ -444,22 +539,27 @@ async function main() {
 
     const detailConcurrency = DETAIL_CONCURRENCY;
 
-    const hasCustomProxyUrls = proxyConfigurationInput?.proxyUrls?.length > 0;
+    const wantsProxy =
+        proxyConfigurationInput?.useApifyProxy === true
+        || (Array.isArray(proxyConfigurationInput?.proxyUrls) && proxyConfigurationInput.proxyUrls.length > 0);
 
-    if (proxyConfigurationInput?.useApifyProxy) {
-        log.info('Apify proxy skipped — Jobat.be blocks datacenter proxy IPs. Using direct connection.');
+    let proxyUrl;
+    if (wantsProxy) {
+        try {
+            const proxyConfiguration = await Actor.createProxyConfiguration(proxyConfigurationInput);
+            proxyUrl = proxyConfiguration ? await proxyConfiguration.newUrl() : undefined;
+        } catch (error) {
+            log.warning(`Proxy configuration failed (${shortMessage(error)}). Falling back to direct connection.`);
+        }
+        if (!proxyUrl) log.warning('Proxy requested but unavailable. Falling back to direct connection.');
     }
 
-    const proxyConfiguration = hasCustomProxyUrls
-        ? await Actor.createProxyConfiguration(proxyConfigurationInput)
-        : undefined;
+    const routes = [];
+    if (proxyUrl) routes.push({ label: 'proxy', client: createClient('chrome', proxyUrl) });
+    routes.push({ label: proxyUrl ? 'direct (chrome)' : 'direct connection (chrome)', client: createClient('chrome') });
+    routes.push({ label: 'direct (chrome151 fallback)', client: createClient('chrome151') });
 
-    const proxyUrl = proxyConfiguration ? await proxyConfiguration.newUrl() : undefined;
-    const client = new Impit({
-        browser: 'chrome',
-        ignoreTlsErrors: true,
-        ...(proxyUrl && { proxyUrl }),
-    });
+    log.info(`Transport: ${routes.map((route) => route.label).join(' -> ')}`);
 
     const startUrls = normalizeStartUrls(input);
     log.info(`Starting Jobat API-based scrape with ${startUrls.length} start URL(s).`);
@@ -476,13 +576,13 @@ async function main() {
         if (!url || seenListUrls.has(url) || pageNo > maxPages) continue;
         seenListUrls.add(url);
 
-        log.info(`Fetching list page ${pageNo}: ${url}`);
+        log.info(`Fetching list page ${pageNo}.`);
 
         let html;
         try {
-            html = await fetchText(url, client, { referer: BASE_URL });
+            html = await fetchText(url, routes, browserHeaders());
         } catch (error) {
-            log.warning(`List page request failed (${url}): ${error.message}`);
+            log.warning(`List page request failed on page ${pageNo}: ${shortMessage(error)}`);
             continue;
         }
 
@@ -495,7 +595,7 @@ async function main() {
         if (parsed.jobs.length === 0 && pageNo === 1) {
             const fallbackUrls = resolveFallbackStartUrls(url, html);
             if (fallbackUrls.length > 0) {
-                log.warning(`No jobs found on initial URL. Trying ${fallbackUrls.length} fallback listing URL(s).`);
+                log.warning(`No jobs found on the initial page. Trying ${fallbackUrls.length} fallback listing page(s).`);
                 for (const fallbackUrl of fallbackUrls) {
                     if (!seenListUrls.has(fallbackUrl)) queue.push({ url: fallbackUrl, pageNo: 1 });
                 }
@@ -530,11 +630,7 @@ async function main() {
                     detailUrl.searchParams.set('isResultsPage', 'true');
 
                     try {
-                        const detailHtml = await fetchText(detailUrl.href, client, {
-                            accept: 'text/html, */*; q=0.8',
-                            'x-requested-with': 'XMLHttpRequest',
-                            referer: job.sourceUrl,
-                        });
+                        const detailHtml = await fetchText(detailUrl.href, routes, detailHeaders(job.sourceUrl));
 
                         const parsed = parseJobDetail(detailHtml, job);
                         return removeEmptyValues({
@@ -543,7 +639,7 @@ async function main() {
                             fetched_at: new Date().toISOString(),
                         });
                     } catch (error) {
-                        log.warning(`Detail request failed for jobId=${job.jobId}: ${error.message}`);
+                        log.warning(`Detail request failed for jobId=${job.jobId}: ${shortMessage(error)}`);
                         return removeEmptyValues({
                             job_id: job.jobId,
                             title: job.title,
@@ -573,6 +669,16 @@ async function main() {
         if (parsed.nextUrl && pageNo < maxPages && saved < resultsWanted) {
             queue.push({ url: parsed.nextUrl, pageNo: pageNo + 1 });
         }
+    }
+
+    if (pagesProcessed === 0) {
+        throw new Error(
+            `No listing page could be fetched (tried ${seenListUrls.size} URL(s)). Jobat.be is likely blocking this connection with HTTP 403 — enable a proxy in the input and run again.`,
+        );
+    }
+
+    if (saved === 0) {
+        log.warning('Run finished without any results. Check the start URL/keyword or enable a proxy.');
     }
 
     log.info(`Finished | saved=${saved} | pages=${pagesProcessed}.`);

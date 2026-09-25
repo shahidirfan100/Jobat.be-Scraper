@@ -16,8 +16,7 @@
       "title": "Keyword",
       "type": "string",
       "description": "Keyword to search for (e.g., software developer).",
-      "editor": "textfield",
-      "prefill": "software developer"
+      "editor": "textfield"
     },
     "results_wanted": {
       "title": "Results wanted",
@@ -36,6 +35,15 @@
       "minimum": 1,
       "default": 5,
       "prefill": 3
+    },
+    "proxyConfiguration": {
+      "title": "Proxy configuration",
+      "type": "object",
+      "description": "Proxy used when Jobat.be blocks the connection (HTTP 403). Enable Apify Proxy or set custom proxy URLs; the scraper falls back to a direct connection when the proxy is unavailable.",
+      "editor": "proxy",
+      "prefill": {
+        "useApifyProxy": false
+      }
     }
   },
   "required": [],
