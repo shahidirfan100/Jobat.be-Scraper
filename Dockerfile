@@ -8,10 +8,9 @@ USER app
 
 COPY --chown=app:app package*.json ./
 
-# impit ships its Rust native binary via napi-rs optionalDependencies.
-# --omit=optional would skip the platform binary and crash at runtime.
+# Alpine's libc metadata makes npm pick the musl impit binary.
 RUN npm --quiet set progress=false \
-    && npm install --omit=dev --include=optional \
+    && npm install --omit=dev \
     && node -e "import('impit').then(m => console.log('impit OK:', Object.keys(m)))" \
     && rm -rf ~/.npm
 

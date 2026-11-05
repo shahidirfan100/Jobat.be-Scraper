@@ -6,6 +6,8 @@
     "company": "Company",
     "job_url": "Job URL",
     "listing_url": "Listing URL",
+    "date_posted": "Date Posted",
+    "valid_through": "Valid Through",
     "category": "Category",
     "sub_category_1": "Sub Category 1",
     "sub_category_2": "Sub Category 2",
@@ -30,6 +32,7 @@
           "regime",
           "contract_type",
           "salary_type",
+          "date_posted",
           "description_text",
           "job_url",
           "fetched_at"
@@ -65,6 +68,10 @@
           "salary_type": {
             "label": "Salary",
             "format": "text"
+          },
+          "date_posted": {
+            "label": "Date Posted",
+            "format": "date"
           },
           "job_url": {
             "label": "Job URL",

@@ -1,19 +1,24 @@
 {
   "name": "jobat-be-scraper",
   "version": "1.0",
-  "description": "Production-ready Jobat.be jobs scraper with API-based job detail enrichment.",
+  "description": "Jobat.be jobs scraper with self-rotating request profiles and structured job details.",
   "type": "module",
   "dependencies": {
     "apify": "^3.7.2",
     "impit": "^0.14.5"
   },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "prettier": "^3.9.6"
+  },
   "scripts": {
     "start": "node src/main.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "npx eslint .",
-    "lint:fix": "npx eslint . --fix",
-    "test": "echo \"Error: oops, the Actor has no tests yet, sad!\" && exit 1"
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "probe": "node tools/probe.mjs",
+    "test": "node --check src/main.js && eslint ."
   },
   "author": "Shahid Irfan",
   "license": "ISC"

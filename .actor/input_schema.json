@@ -7,7 +7,7 @@
     "startUrl": {
       "title": "Start URL",
       "type": "string",
-      "description": "Jobat search URL to start from.",
+      "description": "Jobat.be search URL to start from. Ignored when a keyword is supplied.",
       "editor": "textfield",
       "prefill": "https://www.jobat.be/nl/jobs/administratie",
       "default": "https://www.jobat.be/nl/jobs/administratie"
@@ -15,7 +15,7 @@
     "keyword": {
       "title": "Keyword",
       "type": "string",
-      "description": "Keyword to search for (e.g., software developer).",
+      "description": "Keyword to search for, such as software developer. Takes precedence over the start URL.",
       "editor": "textfield"
     },
     "results_wanted": {
@@ -24,25 +24,25 @@
       "description": "Maximum number of jobs to save.",
       "editor": "number",
       "minimum": 1,
-      "default": 20,
-      "prefill": 20
+      "default": 20
     },
     "max_pages": {
       "title": "Maximum pages",
       "type": "integer",
-      "description": "Maximum number of listing pages to visit per start URL.",
+      "description": "Maximum number of listing pages to visit.",
       "editor": "number",
       "minimum": 1,
-      "default": 5,
-      "prefill": 3
+      "default": 5
     },
     "proxyConfiguration": {
       "title": "Proxy configuration",
       "type": "object",
-      "description": "Proxy used when Jobat.be blocks the connection (HTTP 403). Enable Apify Proxy or set custom proxy URLs; the scraper falls back to a direct connection when the proxy is unavailable.",
+      "description": "Apify residential proxy in Belgium. Jobat.be refuses datacenter IPs, including Apify's cloud IPs, and unpinned residential exits are often blocked, so Belgium residential is the default. Switch to a custom proxy or no proxy only if your own connection is accepted.",
       "editor": "proxy",
-      "prefill": {
-        "useApifyProxy": false
+      "default": {
+        "useApifyProxy": true,
+        "apifyProxyGroups": ["RESIDENTIAL"],
+        "apifyProxyCountry": "BE"
       }
     }
   },
